@@ -16,9 +16,9 @@ function parseContacts(raw, email) {
     return emailClean ? [{ name: "Event POC", email: emailClean }] : [];
   }
   const segments = raw.split(/[\n|;,]+|\s+and\s+/i).map((s) => s.trim()).filter(Boolean);
-  const contacts = [];
   const stripName = (t) =>
     t.replace(PHONE_RE, "").replace(/\+?91\b/, "").replace(/^\s*\d+[.)]\s*/, "").replace(/[-:,()[\]]/g, " ").replace(/\s+/g, " ").trim();
+  const contacts = [];
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     const m = seg.match(PHONE_RE);
