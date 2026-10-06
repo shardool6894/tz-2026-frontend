@@ -9,6 +9,7 @@ import { MdContentCopy } from "react-icons/md";
 import CopyWrapper from "../utils/CopyWrapper";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import ProfileEventActions from "../Profile/ProfileEventActions";
+import ProfileEventTeam from "../Profile/ProfileEventTeam";
 
 const toRuleList = (value) => {
   if (Array.isArray(value)) {
@@ -46,6 +47,7 @@ const Card = () => {
   const contactList = toContactList(contact);
   const ruleList = toRuleList(rules);
   const [imageSrc, setImageSrc] = useState(imgsrc);
+  const [teamPanelKey, setTeamPanelKey] = useState(0);
   const cardRef = useRef(null);
 
   // Handles navigation back
@@ -156,7 +158,12 @@ const Card = () => {
                 {title}
               </div>
 
-              {fromProfile && <ProfileEventActions eventId={eventId} />}
+              {fromProfile && (
+                <ProfileEventActions
+                  eventId={eventId}
+                  onRegistered={() => setTeamPanelKey((k) => k + 1)}
+                />
+              )}
 
               {glink && (
                 <div className="mb-5">
@@ -261,6 +268,14 @@ const Card = () => {
                     </small>
                   )}
                 </section>
+              )}
+
+              {fromProfile && eventId && (
+                <ProfileEventTeam
+                  key={teamPanelKey}
+                  eventId={eventId}
+                  teamSize={teamSize}
+                />
               )}
             </div>
 

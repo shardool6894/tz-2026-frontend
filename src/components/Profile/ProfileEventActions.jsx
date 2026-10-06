@@ -3,9 +3,8 @@ import { useAuth } from "../../Context/AuthManager";
 import { useSnackbar } from "../../Context/SnackbarProvider";
 import { authFetch } from "../utils/authFetch";
 
-// Shown on the event card when it is opened from the profile section:
-// "Add this event" (or a registered badge) plus a TEMPORARY teammates box.
-const ProfileEventActions = ({ eventId }) => {
+// Shown at the top of the event card when opened from profile: register for this event.
+const ProfileEventActions = ({ eventId, onRegistered }) => {
   const { user, updateUser, forceLogout } = useAuth();
   const { notify } = useSnackbar();
   const [saving, setSaving] = useState(false);
@@ -15,9 +14,6 @@ const ProfileEventActions = ({ eventId }) => {
   const registered = (Array.isArray(user.events) ? user.events : [])
     .map((e) => String(e && e._id ? e._id : e))
     .includes(String(eventId));
-  const members = (Array.isArray(user.teamMembers) ? user.teamMembers : [])
-    .map((m) => m && m.name)
-    .filter(Boolean);
 
   const addEvent = async () => {
     if (saving) return;
@@ -37,6 +33,7 @@ const ProfileEventActions = ({ eventId }) => {
         return;
       }
       if (data.user) updateUser(data.user);
+      if (onRegistered) onRegistered();
       notify("Event added to your registration", { variant: "success" });
     } catch {
       notify("Couldn't reach the server. Please try again in a moment.", { variant: "error" });
@@ -61,29 +58,6 @@ const ProfileEventActions = ({ eventId }) => {
           {saving ? "Adding..." : "+ Add this event"}
         </button>
       )}
-
-      {/* TEMPORARY placeholder - replace with the real "add teammates" feature */}
-      <div className="p-3 rounded-lg bg-black/40 border border-cyan-500/20">
-        <span className="block text-xs uppercase tracking-wider opacity-70 mb-1">
-          Adding teammates
-        </span>
-        {registered ? (
-          <>
-            <p className="text-sm">
-              Registered team: {members.length ? members.join(", ") : "no teammates added yet"}
-            </p>
-            <button
-              type="button"
-              disabled
-              className="mt-2 px-3 py-1.5 rounded-md border border-cyan-500/30 text-xs opacity-50 cursor-not-allowed"
-            >
-              + Add teammate (coming soon)
-            </button>
-          </>
-        ) : (
-          <p className="text-sm opacity-70">Add this event first, then you can add teammates here.</p>
-        )}
-      </div>
     </div>
   );
 };
