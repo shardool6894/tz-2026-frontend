@@ -160,7 +160,14 @@ const AuthProvider = ({ children }) => {
     }
   } catch (err) {
     console.log(err);
-    notify(err.isUpload ? err.message : 'Something went wrong during registration.',{ variant: 'error' })
+    const msg = err.isUpload
+  ? err.message
+  : err instanceof TypeError
+    ? 'Could not reach the server. Please check your connection and try again.'
+    : err instanceof SyntaxError
+      ? 'The server sent an unexpected response. Please try again.'
+      : 'Something went wrong during registration.';
+  notify(msg, { variant: 'error' })
   } finally {
     setLoading(false);
   }
