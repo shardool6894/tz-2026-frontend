@@ -8,6 +8,7 @@ import { FaExternalLinkAlt } from "react-icons/fa";
 import { MdContentCopy } from "react-icons/md";
 import CopyWrapper from "../utils/CopyWrapper";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import ProfileEventActions from "../Profile/ProfileEventActions";
 
 const toRuleList = (value) => {
   if (Array.isArray(value)) {
@@ -38,7 +39,9 @@ const Card = () => {
     totalCost,
     cashPrize,
     duration,
-    eventType
+    eventType,
+    _id: eventId,
+    fromProfile
   } = location.state || {};
   const contactList = toContactList(contact);
   const ruleList = toRuleList(rules);
@@ -152,6 +155,8 @@ const Card = () => {
               <div className="font-bold text-2xl lg:text-3xl uppercase tracking-wide text-cyan-300 mb-4">
                 {title}
               </div>
+
+              {fromProfile && <ProfileEventActions eventId={eventId} />}
 
               {glink && (
                 <div className="mb-5">

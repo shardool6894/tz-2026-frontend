@@ -9,6 +9,8 @@ import PastEvents from '../components/PastEvents/PastEvents.jsx';
 import { ComingSoon } from "../components/ComingSoon/ComingSoon.jsx";
 import {Register} from '../components/Register2/Register.jsx'
 import {Login} from "../components/Login/Login.jsx";
+import {Profile} from "../components/Profile/Profile.jsx";
+import {AddEvents} from "../components/Profile/AddEvents.jsx";
 const RoutesManager = () => {
 	const { pathname } = useLocation();
 	useEffect(() => {
@@ -38,6 +40,8 @@ const RoutesManager = () => {
 			{/* Registration coming soon */}
 			<Route path="/register" element={<Register />} />
 			<Route path="/login" element={<Login />} />
+			<Route path="/profile" element={<Profile />} />
+			<Route path="/profile/add-events" element={<AddEvents />} />
 			<Route path="/about" element={<About />} />
 			{/* <Route path="/sponsors" element={<Sponsors />} /> */}
 			<Route path="/events" element={<EventsPage />} />

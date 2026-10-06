@@ -22,7 +22,10 @@ const guestNavigation = [
   { name: "LOGIN", link: "/login" },
    { name: "REGISTER", link: "/auth/register" },
  ];
-const memberNavigation = [{ name: "LOGOUT", link: "/login", action: "logout" }];
+const memberNavigation = [
+  { name: "PROFILE", link: "/profile" },
+  { name: "LOGOUT", link: "/login", action: "logout" },
+];
 
 const dropList = [
   { name: "List1", link: "/l1" },

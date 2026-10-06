@@ -1,21 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
-import { API_URL } from "../../config";
 import { useAuth } from "../../Context/AuthManager";
 import { useSnackbar } from "../../Context/SnackbarProvider";
 import { isNitwEmail } from "../utils/registrationChecks";
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-const FEE_PER_COMPETITION = 350;
-const MAX_FEE = 2000;
-const categories = [
-  { key: "competition", title: "Competitions" },
-  { key: "demonstration", title: "Demonstrations" },
-  { key: "game", title: "Games" },
-];
-const computeFee = (competitionCount) =>
-  competitionCount === 0
-    ? FEE_PER_COMPETITION
-    : Math.min(MAX_FEE, FEE_PER_COMPETITION * competitionCount);
+const REGISTRATION_FEE = 350; // events are added later from the profile page
 const validateUpload = (file) => {
   if (!file) return "";
   const okType = (file.type || "").startsWith("image/") || file.type === "application/pdf";
@@ -29,93 +18,10 @@ export const Register = () => {
   // const [societies, setSocieties] = useState([]);
   // const [clubs, setClubs] = useState([]);
   // const [workshops, setWorkshops] = useState([])
-  const [events, setEvents] = useState([]);
-  const [eventsError, setEventsError] = useState("");
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // const clubsRes = await fetch("/dataJSON/club.json");
-        // const societiesRes = await fetch("/dataJSON/societyx.json");
-        // const workshopRes = await fetch('/dataJSON/workshop.json')
-
-        // const societiesData = await societiesRes.json();
-        // const clubsData = await clubsRes.json();
-        // const workshopsData = await workshopRes.json()
-
-        // setSocieties(societiesData);
-        // setClubs(clubsData);
-        // setWorkshops(workshopsData)
-        const res = await fetch(`${API_URL}/api/events`);
-        if (!res.ok) throw new Error(`Events request failed (${res.status})`);
-        const data = await res.json();
-        setEvents(data.events || []);
-        setEventsError("");
-      } catch (err) {
-        console.error("Failed to fetch JSON:", err);
-      }
-    };
-
-    fetchData();
-  }, []);
-
-  // const finalData = React.useMemo(() => {
-  //   const map = new Map();
-
-    
-  //   clubs.forEach(club => {
-  //     if (map.has(club.name)) {
-  //       map.get(club.name).events.push({ ...club, displayName: club.title || club.name });
-  //     } else {
-  //       map.set(club.name, { societyName: club.name, events: [{ ...club, displayName: club.title || club.name }] });
-  //     }
-  //   });
-    
-  //   societies.forEach(soc => {
-  //     map.set(soc.societyName, {
-  //       societyName: soc.societyName,
-  //       events: soc.events.map(ev => ({ ...ev, displayName: ev.title || ev.name }))
-  //     });
-  //   });
-
-  //   workshops.forEach(wk => {
-      
-  //    if (map.has(wk.name)) {
-     
-  //       map.get(wk.name).events.push({ ...wk, displayName: wk.title || wk.name });
-  //     } else {
-  //       map.set(wk.name, { societyName: wk.name, events: [{ ...wk, displayName: wk.title || wk.name }] });
-  //     }
-  //   })    
-  //   return Array.from(map.values());
-  // }, [societies, clubs, workshops]);
-  const getCategory = (ev) => {
-  const raw = String(ev.eventType || ev.category || ev.type || "").toLowerCase();
-  if (raw.startsWith("comp")) return "competition";
-  if (raw.startsWith("demo")) return "demonstration";
-  if (raw.startsWith("game")) return "game";
-  return null; 
-  };
-  const eventsByCategory = React.useMemo(() => {
-  const groups = { competition: [], demonstration: [], game: [] };
-  events.forEach((ev) => {
-    const cat = getCategory(ev);
-    if (cat) groups[cat].push(ev);
-    else console.warn("Event without valid category:", ev.name);
-    });
-    return groups;
-  }, [events]);
-
-  const eventById = React.useMemo(
-    () => Object.fromEntries(events.map((e) => [e._id, e])),
-    [events]
-  );
   const {
     register: reactRegister,
     handleSubmit,
     watch,
-    setValue,
-    setError,
-    clearErrors,
     control,
     formState: { errors },
   } = useForm({
@@ -132,32 +38,16 @@ export const Register = () => {
     name: "teamMembers"
   });
 
-  const watchedEvents = watch("events");
   const watchedEmail = watch("email") || "";
   const watchedRegistrationType = watch("registrationType") || "individual";
 
-  useEffect(() => {
-    if (watchedEvents && watchedEvents.length) {
-      setSelectedEventsState(Array.isArray(watchedEvents) ? watchedEvents : [watchedEvents]);
-    }
-  }, [watchedEvents]);
-
-  const [selectedEventsState, setSelectedEventsState] = useState([]);
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [paymentScreenshot, setPaymentScreenshot] = useState(null);
   const [paymentError, setPaymentError] = useState("");
   const [idDocument, setIdDocument] = useState(null);
   const [idDocumentError, setIdDocumentError] = useState("");
   const [teamSizeError, setTeamSizeError] = useState("");
-  const competitionCount = selectedEventsState.filter(
-  (id) => eventById[id] && getCategory(eventById[id]) === "competition"
-  ).length;
-  const registrationFee = computeFee(competitionCount);
-  useEffect(() => {
-    try {
-      reactRegister("events");
-    } catch { }
-  }, [reactRegister]);
+  const registrationFee = REGISTRATION_FEE;
 
   // Clear team size error when team members change
   useEffect(() => {
@@ -207,15 +97,6 @@ export const Register = () => {
       setTeamSizeError("");
       setIdDocumentError("");
       setPaymentError("");
-
-      // Validate events selection
-      const eventsVal = Array.isArray(formData.events) ? formData.events : (formData.events ? [formData.events] : []);
-      if (!eventsVal.length) {
-        setError("events", { type: "required", message: "Please select at least one event to participate." });
-        return;
-      } else {
-        clearErrors("events");
-      }
 
       // Validate team registration
       if (formData.registrationType === "team") {
@@ -300,7 +181,7 @@ export const Register = () => {
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
+          <div className="max-w-2xl mx-auto">
             <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
               <h2 className="text-xl font-semibold mb-6 pb-3 border-b border-cyan/30">
                 Personal Info
@@ -522,107 +403,6 @@ export const Register = () => {
               </div>
             </div>
 
-            <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
-              <h2 className="text-xl font-semibold mb-6 pb-3 border-b border-cyan/30">
-                Event Selection
-              </h2>
-
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium mb-3">Select Events *</label>
-
-                  {errors.events && (
-                    <div className="flex items-center gap-2 mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                      <span className="text-red-400 text-sm">⚠</span>
-                      <p className="text-red-400 text-sm">{errors.events.message}</p>
-                    </div>
-                  )}
-
-                  {eventsError && (
-                    <div className="flex items-center gap-2 mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                      <span className="text-red-400 text-sm">⚠</span>
-                      <p className="text-red-400 text-sm">{eventsError}</p>
-                    </div>
-                  )}
-
-                  <div className="min-h-[120px] p-4 bg-gray rounded-lg mb-4">
-                    {selectedEventsState.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {selectedEventsState.map((id) => (
-                          <span
-                            key={id}
-                            className="inline-flex items-center px-3 py-1 bg-cyan/20 text-sm rounded-full"
-                          >
-                            {eventById[id]?.name || id}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const next = selectedEventsState.filter((e) => e !== id);
-                                setSelectedEventsState(next);
-                                setValue("events", next, { shouldValidate: true });
-                              }}
-                              className="ml-2 text-white hover:text-cyan"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-grayishWhite/50 text-sm text-center">
-                        No events selected yet
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-6 max-h-[500px] overflow-y-auto">
-                    {categories.map(({key,title}) => (
-                      <div key={key} className="mb-4">
-                        <h3 className="text-lg font-semibold mb-2 border-b border-cyan/30 pb-1">
-                          {title}
-                          {key === "competition" && (
-                            <span className="ml-2 text-xs font-normal text-cyan/70">
-                              ₹{FEE_PER_COMPETITION} each, max ₹{MAX_FEE}
-                            </span>
-                          )}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {eventsByCategory[key].length === 0 && (
-                            <p className="text-sm text-grayishWhite/50">No events available</p>
-                          )}
-                          {eventsByCategory[key].map((ev) => {
-                            const isSelected = selectedEventsState.includes(ev._id);
-                            return (
-                              <label
-                                key={ev._id}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  const next = !isSelected
-                                    ? [...selectedEventsState, ev._id]
-                                    : selectedEventsState.filter((x) => x !== ev._id);
-                                  setSelectedEventsState(next);
-                                  setValue("events", next, { shouldValidate: true });
-                                  if (next.length > 0) clearErrors("events");
-                                }}
-                                className={`flex items-center p-2 rounded-lg cursor-pointer transition hover:bg-gray ${isSelected ? "bg-cyan/20" : "bg-black/10"}`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  readOnly
-                                  className="sr-only"
-                                />
-                                <span className="text-sm font-medium">{ev.name || ev.title || "Unnamed Event"}</span>
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
 
           <div className="mt-8 mb-20 text-center">

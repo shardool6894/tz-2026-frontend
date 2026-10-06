@@ -167,6 +167,19 @@ const AuthProvider = ({ children }) => {
 };
 
 
+  // Swap in a newer copy of the user (e.g. after adding events) and keep localStorage in step
+  const updateUser = (nextUser) => {
+    try { localStorage.setItem('user_info', JSON.stringify(nextUser)) } catch (err) { console.warn('Could not persist user:', err) }
+    setUser(nextUser)
+  }
+
+  // Immediate logout with no confirmation step (used when the token has expired)
+  const forceLogout = () => {
+    clearSession()
+    setUser(null)
+    setPendingLogout(false)
+  }
+
   const logout = () => {
     // two-step snackbar-based confirmation: first click asks user to click again within 5s
     if (!pendingLogout) {
@@ -186,7 +199,7 @@ const AuthProvider = ({ children }) => {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout, loading, setLoading }}>
+    <AuthContext.Provider value={{ user, login, register, logout, loading, setLoading, updateUser, forceLogout }}>
       {/* {loading ? <Loader /> : children} */}
       {loading && <Loader />}
       {children}    
