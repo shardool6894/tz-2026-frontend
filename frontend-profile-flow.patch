@@ -1,0 +1,876 @@
+From 6bb34170dcdb64c66a12ee3172ccfbf197cc123d Mon Sep 17 00:00:00 2001
+From: scratch <a@b.c>
+Date: Tue, 6 Oct 2026 04:02:55 +0000
+Subject: [PATCH] Profile page with add events, event cards in profile mode,
+ navbar profile link, event-free registration
+
+---
+ src/Context/AuthManager.jsx                   |  15 +-
+ src/Context/RoutesManager.jsx                 |   4 +
+ src/components/Navbar/index.js                |   5 +-
+ src/components/Profile/AddEvents.jsx          | 155 ++++++++++++
+ src/components/Profile/Profile.jsx            | 164 +++++++++++++
+ .../Profile/ProfileEventActions.jsx           |  91 +++++++
+ src/components/Register2/Register.jsx         | 226 +-----------------
+ src/components/card/card.jsx                  |   7 +-
+ src/components/utils/authFetch.js             |  26 ++
+ 9 files changed, 467 insertions(+), 226 deletions(-)
+ create mode 100644 src/components/Profile/AddEvents.jsx
+ create mode 100644 src/components/Profile/Profile.jsx
+ create mode 100644 src/components/Profile/ProfileEventActions.jsx
+ create mode 100644 src/components/utils/authFetch.js
+
+diff --git a/src/Context/AuthManager.jsx b/src/Context/AuthManager.jsx
+index 84b5c40..c9ff384 100644
+--- a/src/Context/AuthManager.jsx
++++ b/src/Context/AuthManager.jsx
+@@ -167,6 +167,19 @@ const AuthProvider = ({ children }) => {
+ };
+ 
+ 
++  // Swap in a newer copy of the user (e.g. after adding events) and keep localStorage in step
++  const updateUser = (nextUser) => {
++    try { localStorage.setItem('user_info', JSON.stringify(nextUser)) } catch (err) { console.warn('Could not persist user:', err) }
++    setUser(nextUser)
++  }
++
++  // Immediate logout with no confirmation step (used when the token has expired)
++  const forceLogout = () => {
++    clearSession()
++    setUser(null)
++    setPendingLogout(false)
++  }
++
+   const logout = () => {
+     // two-step snackbar-based confirmation: first click asks user to click again within 5s
+     if (!pendingLogout) {
+@@ -186,7 +199,7 @@ const AuthProvider = ({ children }) => {
+   }
+ 
+   return (
+-    <AuthContext.Provider value={{ user, login, register, logout, loading, setLoading }}>
++    <AuthContext.Provider value={{ user, login, register, logout, loading, setLoading, updateUser, forceLogout }}>
+       {/* {loading ? <Loader /> : children} */}
+       {loading && <Loader />}
+       {children}    
+diff --git a/src/Context/RoutesManager.jsx b/src/Context/RoutesManager.jsx
+index 6ca363f..f42a9f0 100644
+--- a/src/Context/RoutesManager.jsx
++++ b/src/Context/RoutesManager.jsx
+@@ -9,6 +9,8 @@ import PastEvents from '../components/PastEvents/PastEvents.jsx';
+ import { ComingSoon } from "../components/ComingSoon/ComingSoon.jsx";
+ import {Register} from '../components/Register2/Register.jsx'
+ import {Login} from "../components/Login/Login.jsx";
++import {Profile} from "../components/Profile/Profile.jsx";
++import {AddEvents} from "../components/Profile/AddEvents.jsx";
+ const RoutesManager = () => {
+ 	const { pathname } = useLocation();
+ 	useEffect(() => {
+@@ -38,6 +40,8 @@ const RoutesManager = () => {
+ 			{/* Registration coming soon */}
+ 			<Route path="/register" element={<Register />} />
+ 			<Route path="/login" element={<Login />} />
++			<Route path="/profile" element={<Profile />} />
++			<Route path="/profile/add-events" element={<AddEvents />} />
+ 			<Route path="/about" element={<About />} />
+ 			{/* <Route path="/sponsors" element={<Sponsors />} /> */}
+ 			<Route path="/events" element={<EventsPage />} />
+diff --git a/src/components/Navbar/index.js b/src/components/Navbar/index.js
+index 2f8113a..6354c49 100644
+--- a/src/components/Navbar/index.js
++++ b/src/components/Navbar/index.js
+@@ -22,7 +22,10 @@ const guestNavigation = [
+   { name: "LOGIN", link: "/login" },
+    { name: "REGISTER", link: "/auth/register" },
+  ];
+-const memberNavigation = [{ name: "LOGOUT", link: "/login", action: "logout" }];
++const memberNavigation = [
++  { name: "PROFILE", link: "/profile" },
++  { name: "LOGOUT", link: "/login", action: "logout" },
++];
+ 
+ const dropList = [
+   { name: "List1", link: "/l1" },
+diff --git a/src/components/Profile/AddEvents.jsx b/src/components/Profile/AddEvents.jsx
+new file mode 100644
+index 0000000..ce91d3d
+--- /dev/null
++++ b/src/components/Profile/AddEvents.jsx
+@@ -0,0 +1,155 @@
++import React, { useEffect, useState } from "react";
++import { Navigate, useNavigate } from "react-router-dom";
++import { WebCanvas } from "../bg_animation/bg_animate";
++import Poster from "../event_scroll/poster";
++import { Loader } from "../Loader/index";
++import { fetchEvents } from "../Events/eventsData";
++import { useAuth } from "../../Context/AuthManager";
++import "../PastEvents/PastEvents.css";
++import "../event_scroll/index.css";
++
++const CATEGORY_TABS = [
++  { key: "all", label: "ALL" },
++  { key: "competition", label: "COMPETITIONS" },
++  { key: "game", label: "GAMES" },
++  { key: "demonstration", label: "DEMONSTRATIONS" },
++];
++
++// Same look as the Events page, but only lists events the user hasn't registered for yet.
++export const AddEvents = () => {
++  const { user } = useAuth();
++  const navigate = useNavigate();
++  const [selectedCategory, setSelectedCategory] = useState("all");
++  const [events, setEvents] = useState([]);
++  const [isLoading, setIsLoading] = useState(true);
++  const [error, setError] = useState(null);
++
++  useEffect(() => {
++    let isMounted = true;
++    fetchEvents()
++      .then((data) => {
++        if (isMounted) setEvents(Array.isArray(data) ? data : []);
++      })
++      .catch((err) => {
++        console.error("Error loading events:", err);
++        if (isMounted) setError(err.message || "Failed to load events");
++      })
++      .finally(() => {
++        if (isMounted) setIsLoading(false);
++      });
++    return () => {
++      isMounted = false;
++    };
++  }, []);
++
++  if (!user) return <Navigate to="/login" replace />;
++
++  const registeredIds = new Set(
++    (Array.isArray(user.events) ? user.events : []).map((e) => String(e && e._id ? e._id : e))
++  );
++
++  // the bundled backup list has no _id, so those events can't be added
++  const apiDown = !isLoading && !error && events.length > 0 && !events.some((e) => e && e._id);
++
++  const available = events.filter(
++    (ev) => ev && ev._id && ev.registrationOpen !== false && !registeredIds.has(String(ev._id))
++  );
++
++  const filteredEvents = available.filter((ev) => {
++    if (selectedCategory === "all") return true;
++    const typeLower = (ev.eventType || "").toLowerCase();
++    if (selectedCategory === "competition") return typeLower.includes("competition");
++    if (selectedCategory === "game") return typeLower.includes("game") || typeLower.includes("fun");
++    if (selectedCategory === "demonstration")
++      return typeLower.includes("demonstration") || typeLower.includes("demo");
++    return true;
++  });
++
++  const eventCount = filteredEvents.length;
++  const countLabel =
++    isLoading || error ? "EVENTS" : `${eventCount} ${eventCount === 1 ? "EVENT" : "EVENTS"}`;
++
++  const handlePosterClick = (item) => {
++    navigate("/card", {
++      state: {
++        ...item,
++        imgsrc: item.imgsrc || "",
++        glink: item.glink || "",
++        returnPath: "/profile/add-events",
++        fromProfile: true,
++      },
++    });
++  };
++
++  return (
++    <div className="past-events-root">
++      <div className="past-events-canvas">
++        <WebCanvas />
++      </div>
++
++      <div className="edition-view-container pt-12 md:pt-16">
++        <div className="edition-topbar">
++          <div className="edition-topbar-row">
++            <div className="edition-badge-container">
++              <h1 className="edition-title-badge">Add Events</h1>
++              <span className="edition-year-pill">{countLabel}</span>
++              <button
++                type="button"
++                onClick={() => navigate("/profile")}
++                className="px-4 py-1.5 text-sm font-semibold rounded-lg bg-cyan/20 hover:bg-cyan/30 transition"
++              >
++                ← Back to profile
++              </button>
++            </div>
++
++            <div className="tabs my-0">
++              {CATEGORY_TABS.map((tab) => (
++                <button
++                  key={tab.key}
++                  type="button"
++                  className={`tab-button ${selectedCategory === tab.key ? "active" : ""}`}
++                  onClick={() => setSelectedCategory(tab.key)}
++                  aria-pressed={selectedCategory === tab.key}
++                >
++                  {tab.label}
++                </button>
++              ))}
++            </div>
++          </div>
++        </div>
++
++        <div className="edition-content-body">
++          <div className="grid lg:grid-cols-5 md:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-x-4 gap-y-8 lg:gap-y-10 lg:m-6 m-3">
++            {filteredEvents.map((item) => (
++              <Poster
++                key={item._id}
++                imageSrc={item.imgsrc || ""}
++                fallbackSrc=""
++                title={item.name}
++                content={item.club}
++                onClick={() => handlePosterClick(item)}
++              />
++            ))}
++          </div>
++          {isLoading && <Loader />}
++          {!isLoading && error && <p className="text-center text-red-400 my-8">Error: {error}</p>}
++          {apiDown && (
++            <p className="text-center opacity-70 my-8">
++              Events can't be loaded right now, so adding events is unavailable. Please try again in
++              a few minutes.
++            </p>
++          )}
++          {!isLoading && !error && !apiDown && filteredEvents.length === 0 && (
++            <p className="text-center opacity-70 my-8">
++              {available.length === 0
++                ? "You're already registered for every event that is open right now."
++                : "No events in this category"}
++            </p>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++};
++
++export default AddEvents;
+diff --git a/src/components/Profile/Profile.jsx b/src/components/Profile/Profile.jsx
+new file mode 100644
+index 0000000..eccec39
+--- /dev/null
++++ b/src/components/Profile/Profile.jsx
+@@ -0,0 +1,164 @@
++import React, { useEffect, useState } from "react";
++import { Navigate, useNavigate } from "react-router-dom";
++import { useAuth } from "../../Context/AuthManager";
++import { useSnackbar } from "../../Context/SnackbarProvider";
++import { fetchEvents } from "../Events/eventsData";
++import Poster from "../event_scroll/poster";
++import { authFetch } from "../utils/authFetch";
++
++const Row = ({ label, value }) => (
++  <div className="flex flex-col sm:flex-row sm:justify-between gap-1 py-3 border-b border-cyan/10 last:border-0">
++    <span className="text-sm text-white/60">{label}</span>
++    <span className="text-sm font-medium break-words sm:text-right">{value || "—"}</span>
++  </div>
++);
++
++export const Profile = () => {
++  const { user, updateUser, forceLogout } = useAuth();
++  const { notify } = useSnackbar();
++  const navigate = useNavigate();
++  const [allEvents, setAllEvents] = useState([]);
++  const [loadingEvents, setLoadingEvents] = useState(true);
++
++  // all events (shared, cached list)
++  useEffect(() => {
++    let cancelled = false;
++    fetchEvents()
++      .then((list) => {
++        if (!cancelled) setAllEvents(Array.isArray(list) ? list : []);
++      })
++      .catch(() => {})
++      .finally(() => {
++        if (!cancelled) setLoadingEvents(false);
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, []);
++
++  // refresh the saved copy of the user so the registered events are current
++  useEffect(() => {
++    if (!user) return undefined;
++    let cancelled = false;
++    (async () => {
++      try {
++        const { res, data } = await authFetch("/api/users/me");
++        if (cancelled) return;
++        if (res.status === 401) {
++          notify("Your session has expired. Please log in again.", { variant: "error" });
++          forceLogout();
++          return;
++        }
++        if (res.ok && data.user) updateUser(data.user);
++      } catch {
++        /* backend asleep or offline: keep showing the saved copy */
++      }
++    })();
++    return () => {
++      cancelled = true;
++    };
++    // run once when the page opens
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, []);
++
++  if (!user) return <Navigate to="/login" replace />;
++
++  // user.events holds event ids
++  const ids = (Array.isArray(user.events) ? user.events : []).map((e) =>
++    String(e && e._id ? e._id : e)
++  );
++  const byId = new Map(allEvents.filter((e) => e && e._id).map((e) => [String(e._id), e]));
++  const registered = ids.map((id) => byId.get(id)).filter(Boolean);
++  const unresolved = ids.length - registered.length;
++  const members = Array.isArray(user.teamMembers) ? user.teamMembers : [];
++
++  const openEvent = (item) =>
++    navigate("/card", {
++      state: {
++        ...item,
++        imgsrc: item.imgsrc || "",
++        glink: item.glink || "",
++        returnPath: "/profile",
++        fromProfile: true,
++      },
++    });
++
++  return (
++    <div className="min-h-screen bg-black text-white px-4 md:px-8 pb-10 pt-24 md:pt-32">
++      <div className="max-w-5xl mx-auto space-y-8">
++        <h1 className="text-3xl md:text-4xl font-bold text-cyan text-center">My Profile</h1>
++
++        {/* Personal details */}
++        <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10 max-w-3xl mx-auto w-full">
++          <h2 className="text-xl font-semibold mb-4 pb-3 border-b border-cyan/30">Personal Details</h2>
++          <Row label="Name" value={user.name} />
++          <Row label="Email" value={user.email} />
++          <Row label="College" value={user.collegeName} />
++          <Row label="Registration number" value={user.registrationNum} />
++          <Row
++            label="Registration type"
++            value={user.registrationType === "team" ? "Team" : "Individual"}
++          />
++          <Row label="Accommodation" value={user.accommodation ? "Requested" : "Not requested"} />
++          {members.length > 0 && (
++            <Row
++              label="Team members"
++              value={members.map((m) => m && m.name).filter(Boolean).join(", ")}
++            />
++          )}
++        </div>
++
++        {/* Registered events + Add events */}
++        <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
++          <div className="flex items-center justify-between gap-3 mb-5 pb-3 border-b border-cyan/30">
++            <h2 className="text-xl font-semibold">
++              Registered Events{" "}
++              {ids.length > 0 && <span className="text-cyan/70">({ids.length})</span>}
++            </h2>
++            <button
++              type="button"
++              onClick={() => navigate("/profile/add-events")}
++              className="px-4 py-2 text-sm font-semibold rounded-lg bg-cyan/20 hover:bg-cyan/30 transition"
++            >
++              + Add events
++            </button>
++          </div>
++
++          {ids.length === 0 ? (
++            <p className="text-white/60 text-sm">
++              You haven't registered for any events yet. Use “Add events” to pick some.
++            </p>
++          ) : loadingEvents ? (
++            <p className="text-white/60 text-sm">Loading your events…</p>
++          ) : (
++            <>
++              {registered.length > 0 && (
++                <div className="grid lg:grid-cols-4 md:grid-cols-3 grid-cols-2 gap-x-4 gap-y-8">
++                  {registered.map((item) => (
++                    <Poster
++                      key={item._id}
++                      imageSrc={item.imgsrc || ""}
++                      fallbackSrc=""
++                      title={item.name}
++                      content={item.club}
++                      onClick={() => openEvent(item)}
++                    />
++                  ))}
++                </div>
++              )}
++              {unresolved > 0 && (
++                <p className="mt-4 text-sm text-white/60">
++                  {registered.length === 0
++                    ? "Event details can't be loaded right now. Please try again in a few minutes."
++                    : `${unresolved} registered event(s) couldn't be matched to the current event list.`}
++                </p>
++              )}
++            </>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++};
++
++export default Profile;
+diff --git a/src/components/Profile/ProfileEventActions.jsx b/src/components/Profile/ProfileEventActions.jsx
+new file mode 100644
+index 0000000..fd34f0b
+--- /dev/null
++++ b/src/components/Profile/ProfileEventActions.jsx
+@@ -0,0 +1,91 @@
++import React, { useState } from "react";
++import { useAuth } from "../../Context/AuthManager";
++import { useSnackbar } from "../../Context/SnackbarProvider";
++import { authFetch } from "../utils/authFetch";
++
++// Shown on the event card when it is opened from the profile section:
++// "Add this event" (or a registered badge) plus a TEMPORARY teammates box.
++const ProfileEventActions = ({ eventId }) => {
++  const { user, updateUser, forceLogout } = useAuth();
++  const { notify } = useSnackbar();
++  const [saving, setSaving] = useState(false);
++
++  if (!user || !eventId) return null;
++
++  const registered = (Array.isArray(user.events) ? user.events : [])
++    .map((e) => String(e && e._id ? e._id : e))
++    .includes(String(eventId));
++  const members = (Array.isArray(user.teamMembers) ? user.teamMembers : [])
++    .map((m) => m && m.name)
++    .filter(Boolean);
++
++  const addEvent = async () => {
++    if (saving) return;
++    setSaving(true);
++    try {
++      const { res, data } = await authFetch("/api/users/me/events", {
++        method: "POST",
++        body: JSON.stringify({ events: [String(eventId)] }),
++      });
++      if (res.status === 401) {
++        notify("Your session has expired. Please log in again.", { variant: "error" });
++        forceLogout();
++        return;
++      }
++      if (!res.ok) {
++        notify(data.message || "Could not add this event. Please try again.", { variant: "error" });
++        return;
++      }
++      if (data.user) updateUser(data.user);
++      notify("Event added to your registration", { variant: "success" });
++    } catch {
++      notify("Couldn't reach the server. Please try again in a moment.", { variant: "error" });
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  return (
++    <div className="mb-5 flex flex-col gap-3">
++      {registered ? (
++        <div className="inline-flex self-start items-center gap-2 px-4 py-2 rounded-lg border border-green-400/40 bg-green-900/20 text-green-300 text-sm font-semibold">
++          ✓ You're registered for this event
++        </div>
++      ) : (
++        <button
++          type="button"
++          onClick={addEvent}
++          disabled={saving}
++          className="self-start px-4 py-2.5 rounded-lg border border-cyan-400 text-cyan-300 bg-cyan-950/40 hover:bg-cyan-500/20 transition text-sm font-semibold disabled:opacity-50"
++        >
++          {saving ? "Adding..." : "+ Add this event"}
++        </button>
++      )}
++
++      {/* TEMPORARY placeholder - replace with the real "add teammates" feature */}
++      <div className="p-3 rounded-lg bg-black/40 border border-cyan-500/20">
++        <span className="block text-xs uppercase tracking-wider opacity-70 mb-1">
++          Adding teammates
++        </span>
++        {registered ? (
++          <>
++            <p className="text-sm">
++              Registered team: {members.length ? members.join(", ") : "no teammates added yet"}
++            </p>
++            <button
++              type="button"
++              disabled
++              className="mt-2 px-3 py-1.5 rounded-md border border-cyan-500/30 text-xs opacity-50 cursor-not-allowed"
++            >
++              + Add teammate (coming soon)
++            </button>
++          </>
++        ) : (
++          <p className="text-sm opacity-70">Add this event first, then you can add teammates here.</p>
++        )}
++      </div>
++    </div>
++  );
++};
++
++export default ProfileEventActions;
+diff --git a/src/components/Register2/Register.jsx b/src/components/Register2/Register.jsx
+index 80803e6..5513673 100644
+--- a/src/components/Register2/Register.jsx
++++ b/src/components/Register2/Register.jsx
+@@ -1,21 +1,10 @@
+ import React, { useState, useEffect } from "react";
+ import { useForm, useFieldArray } from "react-hook-form";
+-import { API_URL } from "../../config";
+ import { useAuth } from "../../Context/AuthManager";
+ import { useSnackbar } from "../../Context/SnackbarProvider";
+ import { isNitwEmail } from "../utils/registrationChecks";
+ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+-const FEE_PER_COMPETITION = 350;
+-const MAX_FEE = 2000;
+-const categories = [
+-  { key: "competition", title: "Competitions" },
+-  { key: "demonstration", title: "Demonstrations" },
+-  { key: "game", title: "Games" },
+-];
+-const computeFee = (competitionCount) =>
+-  competitionCount === 0
+-    ? FEE_PER_COMPETITION
+-    : Math.min(MAX_FEE, FEE_PER_COMPETITION * competitionCount);
++const REGISTRATION_FEE = 350; // events are added later from the profile page
+ const validateUpload = (file) => {
+   if (!file) return "";
+   const okType = (file.type || "").startsWith("image/") || file.type === "application/pdf";
+@@ -29,93 +18,10 @@ export const Register = () => {
+   // const [societies, setSocieties] = useState([]);
+   // const [clubs, setClubs] = useState([]);
+   // const [workshops, setWorkshops] = useState([])
+-  const [events, setEvents] = useState([]);
+-  const [eventsError, setEventsError] = useState("");
+-  useEffect(() => {
+-    const fetchData = async () => {
+-      try {
+-        // const clubsRes = await fetch("/dataJSON/club.json");
+-        // const societiesRes = await fetch("/dataJSON/societyx.json");
+-        // const workshopRes = await fetch('/dataJSON/workshop.json')
+-
+-        // const societiesData = await societiesRes.json();
+-        // const clubsData = await clubsRes.json();
+-        // const workshopsData = await workshopRes.json()
+-
+-        // setSocieties(societiesData);
+-        // setClubs(clubsData);
+-        // setWorkshops(workshopsData)
+-        const res = await fetch(`${API_URL}/api/events`);
+-        if (!res.ok) throw new Error(`Events request failed (${res.status})`);
+-        const data = await res.json();
+-        setEvents(data.events || []);
+-        setEventsError("");
+-      } catch (err) {
+-        console.error("Failed to fetch JSON:", err);
+-      }
+-    };
+-
+-    fetchData();
+-  }, []);
+-
+-  // const finalData = React.useMemo(() => {
+-  //   const map = new Map();
+-
+-    
+-  //   clubs.forEach(club => {
+-  //     if (map.has(club.name)) {
+-  //       map.get(club.name).events.push({ ...club, displayName: club.title || club.name });
+-  //     } else {
+-  //       map.set(club.name, { societyName: club.name, events: [{ ...club, displayName: club.title || club.name }] });
+-  //     }
+-  //   });
+-    
+-  //   societies.forEach(soc => {
+-  //     map.set(soc.societyName, {
+-  //       societyName: soc.societyName,
+-  //       events: soc.events.map(ev => ({ ...ev, displayName: ev.title || ev.name }))
+-  //     });
+-  //   });
+-
+-  //   workshops.forEach(wk => {
+-      
+-  //    if (map.has(wk.name)) {
+-     
+-  //       map.get(wk.name).events.push({ ...wk, displayName: wk.title || wk.name });
+-  //     } else {
+-  //       map.set(wk.name, { societyName: wk.name, events: [{ ...wk, displayName: wk.title || wk.name }] });
+-  //     }
+-  //   })    
+-  //   return Array.from(map.values());
+-  // }, [societies, clubs, workshops]);
+-  const getCategory = (ev) => {
+-  const raw = String(ev.eventType || ev.category || ev.type || "").toLowerCase();
+-  if (raw.startsWith("comp")) return "competition";
+-  if (raw.startsWith("demo")) return "demonstration";
+-  if (raw.startsWith("game")) return "game";
+-  return null; 
+-  };
+-  const eventsByCategory = React.useMemo(() => {
+-  const groups = { competition: [], demonstration: [], game: [] };
+-  events.forEach((ev) => {
+-    const cat = getCategory(ev);
+-    if (cat) groups[cat].push(ev);
+-    else console.warn("Event without valid category:", ev.name);
+-    });
+-    return groups;
+-  }, [events]);
+-
+-  const eventById = React.useMemo(
+-    () => Object.fromEntries(events.map((e) => [e._id, e])),
+-    [events]
+-  );
+   const {
+     register: reactRegister,
+     handleSubmit,
+     watch,
+-    setValue,
+-    setError,
+-    clearErrors,
+     control,
+     formState: { errors },
+   } = useForm({
+@@ -132,32 +38,16 @@ export const Register = () => {
+     name: "teamMembers"
+   });
+ 
+-  const watchedEvents = watch("events");
+   const watchedEmail = watch("email") || "";
+   const watchedRegistrationType = watch("registrationType") || "individual";
+ 
+-  useEffect(() => {
+-    if (watchedEvents && watchedEvents.length) {
+-      setSelectedEventsState(Array.isArray(watchedEvents) ? watchedEvents : [watchedEvents]);
+-    }
+-  }, [watchedEvents]);
+-
+-  const [selectedEventsState, setSelectedEventsState] = useState([]);
+   const [payModalOpen, setPayModalOpen] = useState(false);
+   const [paymentScreenshot, setPaymentScreenshot] = useState(null);
+   const [paymentError, setPaymentError] = useState("");
+   const [idDocument, setIdDocument] = useState(null);
+   const [idDocumentError, setIdDocumentError] = useState("");
+   const [teamSizeError, setTeamSizeError] = useState("");
+-  const competitionCount = selectedEventsState.filter(
+-  (id) => eventById[id] && getCategory(eventById[id]) === "competition"
+-  ).length;
+-  const registrationFee = computeFee(competitionCount);
+-  useEffect(() => {
+-    try {
+-      reactRegister("events");
+-    } catch { }
+-  }, [reactRegister]);
++  const registrationFee = REGISTRATION_FEE;
+ 
+   // Clear team size error when team members change
+   useEffect(() => {
+@@ -208,15 +98,6 @@ export const Register = () => {
+       setIdDocumentError("");
+       setPaymentError("");
+ 
+-      // Validate events selection
+-      const eventsVal = Array.isArray(formData.events) ? formData.events : (formData.events ? [formData.events] : []);
+-      if (!eventsVal.length) {
+-        setError("events", { type: "required", message: "Please select at least one event to participate." });
+-        return;
+-      } else {
+-        clearErrors("events");
+-      }
+-
+       // Validate team registration
+       if (formData.registrationType === "team") {
+         const teamSize = 1 + (formData.teamMembers?.length || 0);
+@@ -300,7 +181,7 @@ export const Register = () => {
+         </div>
+ 
+         <form onSubmit={handleSubmit(onSubmit)}>
+-          <div className="grid lg:grid-cols-2 gap-8 lg:gap-12">
++          <div className="max-w-2xl mx-auto">
+             <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
+               <h2 className="text-xl font-semibold mb-6 pb-3 border-b border-cyan/30">
+                 Personal Info
+@@ -522,107 +403,6 @@ export const Register = () => {
+               </div>
+             </div>
+ 
+-            <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
+-              <h2 className="text-xl font-semibold mb-6 pb-3 border-b border-cyan/30">
+-                Event Selection
+-              </h2>
+-
+-              <div className="space-y-6">
+-                <div>
+-                  <label className="block text-sm font-medium mb-3">Select Events *</label>
+-
+-                  {errors.events && (
+-                    <div className="flex items-center gap-2 mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+-                      <span className="text-red-400 text-sm">⚠</span>
+-                      <p className="text-red-400 text-sm">{errors.events.message}</p>
+-                    </div>
+-                  )}
+-
+-                  {eventsError && (
+-                    <div className="flex items-center gap-2 mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+-                      <span className="text-red-400 text-sm">⚠</span>
+-                      <p className="text-red-400 text-sm">{eventsError}</p>
+-                    </div>
+-                  )}
+-
+-                  <div className="min-h-[120px] p-4 bg-gray rounded-lg mb-4">
+-                    {selectedEventsState.length > 0 ? (
+-                      <div className="flex flex-wrap gap-2">
+-                        {selectedEventsState.map((id) => (
+-                          <span
+-                            key={id}
+-                            className="inline-flex items-center px-3 py-1 bg-cyan/20 text-sm rounded-full"
+-                          >
+-                            {eventById[id]?.name || id}
+-                            <button
+-                              type="button"
+-                              onClick={() => {
+-                                const next = selectedEventsState.filter((e) => e !== id);
+-                                setSelectedEventsState(next);
+-                                setValue("events", next, { shouldValidate: true });
+-                              }}
+-                              className="ml-2 text-white hover:text-cyan"
+-                            >
+-                              ×
+-                            </button>
+-                          </span>
+-                        ))}
+-                      </div>
+-                    ) : (
+-                      <div className="text-grayishWhite/50 text-sm text-center">
+-                        No events selected yet
+-                      </div>
+-                    )}
+-                  </div>
+-
+-                  <div className="space-y-6 max-h-[500px] overflow-y-auto">
+-                    {categories.map(({key,title}) => (
+-                      <div key={key} className="mb-4">
+-                        <h3 className="text-lg font-semibold mb-2 border-b border-cyan/30 pb-1">
+-                          {title}
+-                          {key === "competition" && (
+-                            <span className="ml-2 text-xs font-normal text-cyan/70">
+-                              ₹{FEE_PER_COMPETITION} each, max ₹{MAX_FEE}
+-                            </span>
+-                          )}
+-                        </h3>
+-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+-                          {eventsByCategory[key].length === 0 && (
+-                            <p className="text-sm text-grayishWhite/50">No events available</p>
+-                          )}
+-                          {eventsByCategory[key].map((ev) => {
+-                            const isSelected = selectedEventsState.includes(ev._id);
+-                            return (
+-                              <label
+-                                key={ev._id}
+-                                onClick={(e) => {
+-                                  e.preventDefault();
+-                                  const next = !isSelected
+-                                    ? [...selectedEventsState, ev._id]
+-                                    : selectedEventsState.filter((x) => x !== ev._id);
+-                                  setSelectedEventsState(next);
+-                                  setValue("events", next, { shouldValidate: true });
+-                                  if (next.length > 0) clearErrors("events");
+-                                }}
+-                                className={`flex items-center p-2 rounded-lg cursor-pointer transition hover:bg-gray ${isSelected ? "bg-cyan/20" : "bg-black/10"}`}
+-                              >
+-                                <input
+-                                  type="checkbox"
+-                                  checked={isSelected}
+-                                  readOnly
+-                                  className="sr-only"
+-                                />
+-                                <span className="text-sm font-medium">{ev.name || ev.title || "Unnamed Event"}</span>
+-                              </label>
+-                            );
+-                          })}
+-                        </div>
+-                      </div>
+-                    ))}
+-                  </div>
+-                </div>
+-              </div>
+-            </div>
+           </div>
+ 
+           <div className="mt-8 mb-20 text-center">
+diff --git a/src/components/card/card.jsx b/src/components/card/card.jsx
+index 75a5eb2..df7da79 100644
+--- a/src/components/card/card.jsx
++++ b/src/components/card/card.jsx
+@@ -8,6 +8,7 @@ import { FaExternalLinkAlt } from "react-icons/fa";
+ import { MdContentCopy } from "react-icons/md";
+ import CopyWrapper from "../utils/CopyWrapper";
+ import { Navigate, useLocation, useNavigate } from "react-router-dom";
++import ProfileEventActions from "../Profile/ProfileEventActions";
+ 
+ const toRuleList = (value) => {
+   if (Array.isArray(value)) {
+@@ -38,7 +39,9 @@ const Card = () => {
+     totalCost,
+     cashPrize,
+     duration,
+-    eventType
++    eventType,
++    _id: eventId,
++    fromProfile
+   } = location.state || {};
+   const contactList = toContactList(contact);
+   const ruleList = toRuleList(rules);
+@@ -153,6 +156,8 @@ const Card = () => {
+                 {title}
+               </div>
+ 
++              {fromProfile && <ProfileEventActions eventId={eventId} />}
++
+               {glink && (
+                 <div className="mb-5">
+                   <a
+diff --git a/src/components/utils/authFetch.js b/src/components/utils/authFetch.js
+new file mode 100644
+index 0000000..34b9325
+--- /dev/null
++++ b/src/components/utils/authFetch.js
+@@ -0,0 +1,26 @@
++import { API_URL } from "../../config";
++
++// fetch helper that sends the saved login token. Returns { res, data }.
++export const authFetch = async (path, options = {}) => {
++  let token = "";
++  try {
++    token = localStorage.getItem("token") || "";
++  } catch {
++    /* storage blocked */
++  }
++  const res = await fetch(`${API_URL}${path}`, {
++    ...options,
++    headers: {
++      "Content-Type": "application/json",
++      Authorization: `Bearer ${token}`,
++      ...(options.headers || {}),
++    },
++  });
++  let data = {};
++  try {
++    data = await res.json();
++  } catch {
++    /* non-JSON body */
++  }
++  return { res, data };
++};
+-- 
+2.43.0
+
