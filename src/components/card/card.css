@@ -177,6 +177,10 @@
   flex-direction: column;
 }
 
+.card-section-overview > * {
+  flex-shrink: 0;
+}
+
 /* Section 3: Rules */
 .card-section-rules {
   overflow-y: auto;
