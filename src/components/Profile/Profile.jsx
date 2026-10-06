@@ -19,6 +19,9 @@ export const Profile = () => {
   const navigate = useNavigate();
   const [allEvents, setAllEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [invites, setInvites] = useState([]);
+  const [invitesLoading, setInvitesLoading] = useState(true);
+  const [respondingId, setRespondingId] = useState("");
 
   // all events (shared, cached list)
   useEffect(() => {
@@ -60,6 +63,58 @@ export const Profile = () => {
     // run once when the page opens
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // pending team requests sent to this user by other users
+const loadInvites = async () => {
+  try {
+    const { res, data } = await authFetch("/api/users/me/invites");
+    if (res.status === 401) {
+      forceLogout();
+      return;
+    }
+    if (res.ok && Array.isArray(data.invites)) setInvites(data.invites);
+  } catch {
+    /* backend asleep or offline: keep what we have */
+  } finally {
+    setInvitesLoading(false);
+  }
+};
+
+useEffect(() => {
+  if (user) loadInvites();
+  // run once when the page opens
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+
+const respondToInvite = async (invite, action) => {
+  if (respondingId) return;
+  setRespondingId(invite.eventId);
+  try {
+    const { res, data } = await authFetch(
+      `/api/events/${invite.eventId}/team/invites/${action}`,
+      { method: "POST" }
+    );
+    if (res.status === 401) {
+      notify("Your session has expired. Please log in again.", { variant: "error" });
+      forceLogout();
+      return;
+    }
+    if (!res.ok) {
+      notify(data.message || `Could not ${action} this request.`, { variant: "error" });
+      loadInvites(); // the request may be out of date, so refresh the list
+      return;
+    }
+    if (action === "accept" && data.user) updateUser(data.user);
+    setInvites((list) => list.filter((i) => i.eventId !== invite.eventId));
+    notify(action === "accept" ? "You joined the team!" : "Request declined", {
+      variant: action === "accept" ? "success" : "info",
+    });
+  } catch {
+    notify("Couldn't reach the server. Please try again.", { variant: "error" });
+  } finally {
+    setRespondingId("");
+  }
+  };
 
   if (!user) return <Navigate to="/login" replace />;
 
@@ -107,6 +162,55 @@ export const Profile = () => {
             />
           )}
         </div>
+
+        {/* Team requests from other users */}
+<div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">
+  <h2 className="text-xl font-semibold mb-5 pb-3 border-b border-cyan/30">
+    Requests{" "}
+    {invites.length > 0 && <span className="text-cyan/70">({invites.length})</span>}
+  </h2>
+  {invitesLoading ? (
+    <p className="text-white/60 text-sm">Loading your requests…</p>
+  ) : invites.length === 0 ? (
+    <p className="text-white/60 text-sm">No pending team requests.</p>
+  ) : (
+    <ul className="flex flex-col gap-3">
+      {invites.map((invite) => (
+        <li
+          key={invite.eventId}
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-black/40 border border-cyan/20"
+        >
+          <p className="text-sm">
+            <span className="font-semibold text-cyan">
+              {(invite.leader && invite.leader.name) || "Someone"}
+            </span>{" "}
+            invited you to join their team for{" "}
+            <span className="font-semibold">{invite.eventName}</span>. Accepting registers
+            you for this event.
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={Boolean(respondingId)}
+              onClick={() => respondToInvite(invite, "accept")}
+              className="px-4 py-2 rounded-lg bg-green-900/40 border border-green-400/40 text-green-200 text-sm font-semibold disabled:opacity-50"
+            >
+              {respondingId === invite.eventId ? "Working…" : "Accept"}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(respondingId)}
+              onClick={() => respondToInvite(invite, "decline")}
+              className="px-4 py-2 rounded-lg border border-white/20 text-sm font-semibold disabled:opacity-50"
+            >
+              Decline
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
+  )}
+  </div>
 
         {/* Registered events + Add events */}
         <div className="bg-darkGray rounded-xl p-6 md:p-8 shadow-lg shadow-cyan/10">

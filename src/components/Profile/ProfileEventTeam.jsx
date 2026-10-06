@@ -9,7 +9,7 @@ const userHasEvent = (user, eventId) =>
     .includes(String(eventId));
 
 const ProfileEventTeam = ({ eventId }) => {
-  const { user, updateUser, forceLogout } = useAuth();
+  const { user, forceLogout } = useAuth();
   const { notify } = useSnackbar();
   const [teamState, setTeamState] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -110,54 +110,54 @@ const ProfileEventTeam = ({ eventId }) => {
     }
   };
 
-  const acceptInvite = async () => {
-    if (actionLoading) return;
-    setActionLoading(true);
-    try {
-      const { res, data } = await authFetch(`/api/events/${eventId}/team/invites/accept`, {
-        method: "POST",
-      });
-      if (res.status === 401) {
-        notify("Your session has expired. Please log in again.", { variant: "error" });
-        forceLogout();
-        return;
-      }
-      if (!res.ok) {
-        notify(data.message || "Could not accept invite", { variant: "error" });
-        return;
-      }
-      if (data.user) updateUser(data.user);
-      if (data.team) setTeamState(data.team);
-      notify(data.message || "Joined team", { variant: "success" });
-    } catch {
-      notify("Couldn't reach the server. Please try again.", { variant: "error" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  // const acceptInvite = async () => {
+  //   if (actionLoading) return;
+  //   setActionLoading(true);
+  //   try {
+  //     const { res, data } = await authFetch(`/api/events/${eventId}/team/invites/accept`, {
+  //       method: "POST",
+  //     });
+  //     if (res.status === 401) {
+  //       notify("Your session has expired. Please log in again.", { variant: "error" });
+  //       forceLogout();
+  //       return;
+  //     }
+  //     if (!res.ok) {
+  //       notify(data.message || "Could not accept invite", { variant: "error" });
+  //       return;
+  //     }
+  //     if (data.user) updateUser(data.user);
+  //     if (data.team) setTeamState(data.team);
+  //     notify(data.message || "Joined team", { variant: "success" });
+  //   } catch {
+  //     notify("Couldn't reach the server. Please try again.", { variant: "error" });
+  //   } finally {
+  //     setActionLoading(false);
+  //   }
+  // };
 
-  const declineInvite = async () => {
-    if (actionLoading) return;
-    setActionLoading(true);
-    try {
-      const { res, data } = await authFetch(`/api/events/${eventId}/team/invites/decline`, {
-        method: "POST",
-      });
-      if (res.status === 401) {
-        notify("Your session has expired. Please log in again.", { variant: "error" });
-        forceLogout();
-        return;
-      }
-      if (!res.ok) {
-        notify(data.message || "Could not decline invite", { variant: "error" });
-        return;
-      }
-      if (data.team) setTeamState(data.team);
-      notify("Invite declined", { variant: "info" });
-    } finally {
-      setActionLoading(false);
-    }
-  };
+  // const declineInvite = async () => {
+  //   if (actionLoading) return;
+  //   setActionLoading(true);
+  //   try {
+  //     const { res, data } = await authFetch(`/api/events/${eventId}/team/invites/decline`, {
+  //       method: "POST",
+  //     });
+  //     if (res.status === 401) {
+  //       notify("Your session has expired. Please log in again.", { variant: "error" });
+  //       forceLogout();
+  //       return;
+  //     }
+  //     if (!res.ok) {
+  //       notify(data.message || "Could not decline invite", { variant: "error" });
+  //       return;
+  //     }
+  //     if (data.team) setTeamState(data.team);
+  //     notify("Invite declined", { variant: "info" });
+  //   } finally {
+  //     setActionLoading(false);
+  //   }
+  // };
 
   if (!user || !eventId) return null;
 
@@ -173,43 +173,43 @@ const ProfileEventTeam = ({ eventId }) => {
   if (isIndividual) return null;
 
   const registered = (teamState && teamState.registered) || registeredLocally;
-  const incoming = teamState && teamState.pendingIncoming;
+  // const incoming = teamState && teamState.pendingIncoming;
   const isLeader = teamState ? teamState.role === "leader" : registered;
   const canInvite = teamState ? teamState.canInvite : registered && isLeader;
   const teamFull = teamState?.teamFull ?? false;
   const maxSize = teamState?.limits?.max ?? 5;
 
-  if (incoming && !registered) {
-    return (
-      <div className="mt-6 p-4 rounded-lg bg-black/40 border border-cyan-500/20 flex flex-col gap-3">
-        <span className="text-xs uppercase tracking-wider opacity-70">Team invite</span>
-        <p className="text-sm">
-          <span className="font-semibold text-cyan-300">
-            {incoming.leader?.name || "Someone"}
-          </span>{" "}
-          invited you to join their team. Accepting will register you for this event.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={actionLoading}
-            onClick={acceptInvite}
-            className="px-4 py-2 rounded-lg bg-green-900/40 border border-green-400/40 text-green-200 text-sm font-semibold disabled:opacity-50"
-          >
-            {actionLoading ? "Working…" : "Accept invite"}
-          </button>
-          <button
-            type="button"
-            disabled={actionLoading}
-            onClick={declineInvite}
-            className="px-4 py-2 rounded-lg border border-white/20 text-sm font-semibold disabled:opacity-50"
-          >
-            Decline
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // if (incoming && !registered) {
+  //   return (
+  //     <div className="mt-6 p-4 rounded-lg bg-black/40 border border-cyan-500/20 flex flex-col gap-3">
+  //       <span className="text-xs uppercase tracking-wider opacity-70">Team invite</span>
+  //       <p className="text-sm">
+  //         <span className="font-semibold text-cyan-300">
+  //           {incoming.leader?.name || "Someone"}
+  //         </span>{" "}
+  //         invited you to join their team. Accepting will register you for this event.
+  //       </p>
+  //       <div className="flex flex-wrap gap-2">
+  //         <button
+  //           type="button"
+  //           disabled={actionLoading}
+  //           onClick={acceptInvite}
+  //           className="px-4 py-2 rounded-lg bg-green-900/40 border border-green-400/40 text-green-200 text-sm font-semibold disabled:opacity-50"
+  //         >
+  //           {actionLoading ? "Working…" : "Accept invite"}
+  //         </button>
+  //         <button
+  //           type="button"
+  //           disabled={actionLoading}
+  //           onClick={declineInvite}
+  //           className="px-4 py-2 rounded-lg border border-white/20 text-sm font-semibold disabled:opacity-50"
+  //         >
+  //           Decline
+  //         </button>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
   if (!registered) {
     return (
