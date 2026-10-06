@@ -1,28 +1,27 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../Context/AuthManager";
 import { useSnackbar } from "../../Context/SnackbarProvider";
 import { authFetch } from "../utils/authFetch";
 
-const isIndividualEvent = (teamSize) => {
-  const raw = teamSize == null ? "" : String(teamSize).trim();
-  if (!raw || raw === "1") return true;
-  const nums = raw.match(/\d+/g);
-  if (!nums) return false;
-  const max = Math.max(...nums.map(Number));
-  return max <= 1;
-};
+const userHasEvent = (user, eventId) =>
+  (Array.isArray(user?.events) ? user.events : [])
+    .map((e) => String(e && e._id ? e._id : e))
+    .includes(String(eventId));
 
-const ProfileEventTeam = ({ eventId, teamSize }) => {
+const ProfileEventTeam = ({ eventId }) => {
   const { user, updateUser, forceLogout } = useAuth();
   const { notify } = useSnackbar();
   const [teamState, setTeamState] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState("");
-  const [lookupUser, setLookupUser] = useState(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
+  const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const individual = isIndividualEvent(teamSize);
+  const registeredLocally = useMemo(
+    () => userHasEvent(user, eventId),
+    [user, eventId]
+  );
 
   const loadTeam = useCallback(async () => {
     if (!eventId || !user) return;
@@ -47,47 +46,43 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
   }, [eventId, user, notify, forceLogout]);
 
   useEffect(() => {
-    if (individual) {
-      setLoading(false);
+    loadTeam();
+  }, [loadTeam]);
+
+  useEffect(() => {
+    const trimmed = query.trim().toLowerCase();
+    if (trimmed.length < 2) {
+      setSearchResults([]);
       return undefined;
     }
-    loadTeam();
-    return undefined;
-  }, [individual, loadTeam]);
 
-  if (!user || !eventId || individual) return null;
-
-  const handleLookup = async () => {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed) {
-      notify("Enter your teammate's email", { variant: "error" });
-      return;
-    }
-    setLookupLoading(true);
-    setLookupUser(null);
-    try {
-      const { res, data } = await authFetch(
-        `/api/users/lookup?email=${encodeURIComponent(trimmed)}`
-      );
-      if (res.status === 401) {
-        notify("Your session has expired. Please log in again.", { variant: "error" });
-        forceLogout();
-        return;
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const { res, data } = await authFetch(
+          `/api/users/search?q=${encodeURIComponent(trimmed)}`
+        );
+        if (res.status === 401) {
+          forceLogout();
+          return;
+        }
+        if (res.ok && Array.isArray(data.users)) {
+          setSearchResults(data.users);
+        } else {
+          setSearchResults([]);
+        }
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setSearchLoading(false);
       }
-      if (!res.ok) {
-        notify(data.message || "User not found", { variant: "error" });
-        return;
-      }
-      setLookupUser(data.user);
-    } catch {
-      notify("Couldn't reach the server. Please try again.", { variant: "error" });
-    } finally {
-      setLookupLoading(false);
-    }
-  };
+    }, 350);
 
-  const sendInvite = async () => {
-    const trimmed = email.trim().toLowerCase();
+    return () => clearTimeout(timer);
+  }, [query, forceLogout]);
+
+  const sendInvite = async (email) => {
+    const trimmed = String(email || "").trim().toLowerCase();
     if (!trimmed || actionLoading) return;
     setActionLoading(true);
     try {
@@ -105,8 +100,8 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
         return;
       }
       if (data.team) setTeamState(data.team);
-      setEmail("");
-      setLookupUser(null);
+      setQuery("");
+      setSearchResults([]);
       notify(data.message || "Invite sent", { variant: "success" });
     } catch {
       notify("Couldn't reach the server. Please try again.", { variant: "error" });
@@ -159,12 +154,12 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
       }
       if (data.team) setTeamState(data.team);
       notify("Invite declined", { variant: "info" });
-    } catch {
-      notify("Couldn't reach the server. Please try again.", { variant: "error" });
     } finally {
       setActionLoading(false);
     }
   };
+
+  if (!user || !eventId) return null;
 
   if (loading) {
     return (
@@ -174,10 +169,15 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
     );
   }
 
+  const isIndividual = teamState?.limits?.isIndividual;
+  if (isIndividual) return null;
+
+  const registered = (teamState && teamState.registered) || registeredLocally;
   const incoming = teamState && teamState.pendingIncoming;
-  const registered = teamState && teamState.registered;
-  const canInvite = teamState && teamState.canInvite;
-  const maxSize = teamState && teamState.limits ? teamState.limits.max : 5;
+  const isLeader = teamState ? teamState.role === "leader" : registered;
+  const canInvite = teamState ? teamState.canInvite : registered && isLeader;
+  const teamFull = teamState?.teamFull ?? false;
+  const maxSize = teamState?.limits?.max ?? 5;
 
   if (incoming && !registered) {
     return (
@@ -185,9 +185,9 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
         <span className="text-xs uppercase tracking-wider opacity-70">Team invite</span>
         <p className="text-sm">
           <span className="font-semibold text-cyan-300">
-            {incoming.leader && incoming.leader.name ? incoming.leader.name : "Someone"}
+            {incoming.leader?.name || "Someone"}
           </span>{" "}
-          invited you to join their team for this event. Accepting will register you for this event.
+          invited you to join their team. Accepting will register you for this event.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -220,78 +220,128 @@ const ProfileEventTeam = ({ eventId, teamSize }) => {
     );
   }
 
-  const leaderName =
-    teamState.leader && teamState.leader.name ? teamState.leader.name : user.name || "You";
-  const members = (teamState.members || []).map((m) => m.name || m.email).filter(Boolean);
-  const pending = (teamState.pendingOutgoing || []).map((m) => m.name || m.email).filter(Boolean);
+  const leader = teamState?.leader;
+  const members = teamState?.members || [];
+  const pending = teamState?.pendingOutgoing || [];
+  const roster = [
+    {
+      key: "leader",
+      name: leader?.name || user.name || "You",
+      email: leader?.email || user.email || "",
+      status: "leader",
+    },
+    ...members.map((m) => ({
+      key: m.id || m.email,
+      name: m.name || m.email,
+      email: m.email || "",
+      status: "member",
+    })),
+    ...pending.map((m) => ({
+      key: `pending-${m.id || m.email}`,
+      name: m.name || m.email,
+      email: m.email || "",
+      status: "pending",
+    })),
+  ];
 
   return (
-    <div className="mt-6 p-4 rounded-lg bg-black/40 border border-cyan-500/20 flex flex-col gap-3">
+    <div className="mt-6 p-4 rounded-lg bg-black/40 border border-cyan-500/20 flex flex-col gap-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-xs uppercase tracking-wider opacity-70">Team</span>
-        <span className="text-xs opacity-60">Up to {maxSize} participants</span>
+        <span className="text-xs opacity-60">
+          {roster.length} / {maxSize} participants
+          {teamFull ? " · Full" : ""}
+        </span>
       </div>
 
-      <p className="text-sm">
-        Leader: <span className="font-semibold text-cyan-300">{leaderName}</span>
-      </p>
-      {members.length > 0 && (
-        <p className="text-sm">
-          Teammates: <span className="text-white/90">{members.join(", ")}</span>
-        </p>
-      )}
-      {pending.length > 0 && (
-        <p className="text-sm opacity-80">
-          Pending invites: {pending.join(", ")}
-        </p>
-      )}
-      {teamState.role === "member" && (
-        <p className="text-sm opacity-70">You are on this team as a member.</p>
-      )}
-
-      {canInvite && (
-        <div className="flex flex-col gap-2 pt-2 border-t border-cyan-500/10">
-          <label className="text-xs uppercase tracking-wider opacity-70" htmlFor="teammate-email">
-            Add teammate (email)
+      {isLeader && canInvite && (
+        <div className="flex flex-col gap-2">
+          <label className="text-xs uppercase tracking-wider opacity-70" htmlFor="teammate-search">
+            Search teammates by email
           </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              id="teammate-email"
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setLookupUser(null);
-              }}
-              placeholder="friend@college.edu"
-              className="flex-1 px-3 py-2 rounded-lg bg-black/50 border border-cyan-500/30 text-sm"
-            />
-            <button
-              type="button"
-              disabled={lookupLoading || actionLoading}
-              onClick={handleLookup}
-              className="px-3 py-2 rounded-lg border border-cyan-500/40 text-sm font-semibold disabled:opacity-50"
-            >
-              {lookupLoading ? "Finding…" : "Find user"}
-            </button>
-          </div>
-          {lookupUser && (
-            <div className="text-sm flex flex-wrap items-center gap-2">
-              <span>
-                Send invite to{" "}
-                <span className="font-semibold text-cyan-300">{lookupUser.name || lookupUser.email}</span>?
-              </span>
-              <button
-                type="button"
-                disabled={actionLoading}
-                onClick={sendInvite}
-                className="px-3 py-1.5 rounded-md bg-cyan-950/60 border border-cyan-400/50 text-xs font-semibold disabled:opacity-50"
-              >
-                {actionLoading ? "Sending…" : "Send invite"}
-              </button>
-            </div>
+          <input
+            id="teammate-search"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Start typing an email…"
+            autoComplete="off"
+            className="w-full px-3 py-2.5 rounded-lg bg-black/50 border border-cyan-500/30 text-sm"
+          />
+          {searchLoading && <p className="text-xs opacity-60">Searching…</p>}
+          {!searchLoading && query.trim().length >= 2 && searchResults.length === 0 && (
+            <p className="text-xs opacity-60">No users found for that email.</p>
+          )}
+          {searchResults.length > 0 && (
+            <ul className="rounded-lg border border-cyan-500/20 divide-y divide-cyan-500/10 overflow-hidden">
+              {searchResults.map((result) => (
+                <li
+                  key={result.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-black/30 text-sm"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{result.name || "User"}</p>
+                    <p className="text-xs opacity-70 truncate">{result.email}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={actionLoading}
+                    onClick={() => sendInvite(result.email)}
+                    className="shrink-0 px-3 py-1.5 rounded-md bg-cyan-950/60 border border-cyan-400/50 text-xs font-semibold disabled:opacity-50"
+                  >
+                    Invite
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
+      )}
+
+      {isLeader && teamFull && (
+        <p className="text-sm text-cyan-300/80">Your team is full. Remove a pending invite or wait for responses before adding more.</p>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs uppercase tracking-wider opacity-70">Your teammates</span>
+        {roster.length <= 1 && members.length === 0 && pending.length === 0 ? (
+          <p className="text-sm opacity-70">No teammates yet. Use the search bar above to invite someone.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {roster.map((person) => (
+              <li
+                key={person.key}
+                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg bg-black/30 border border-cyan-500/15 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{person.name}</p>
+                  {person.email && (
+                    <p className="text-xs opacity-70 truncate">{person.email}</p>
+                  )}
+                </div>
+                <span
+                  className={`text-xs uppercase tracking-wide px-2 py-0.5 rounded ${
+                    person.status === "leader"
+                      ? "bg-cyan-900/50 text-cyan-200"
+                      : person.status === "pending"
+                        ? "bg-amber-900/40 text-amber-200"
+                        : "bg-green-900/30 text-green-200"
+                  }`}
+                >
+                  {person.status === "leader"
+                    ? "Leader"
+                    : person.status === "pending"
+                      ? "Invite sent"
+                      : "Member"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {teamState?.role === "member" && (
+        <p className="text-sm opacity-70">You joined this team as a member.</p>
       )}
     </div>
   );

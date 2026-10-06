@@ -271,11 +271,7 @@ const Card = () => {
               )}
 
               {fromProfile && eventId && (
-                <ProfileEventTeam
-                  key={teamPanelKey}
-                  eventId={eventId}
-                  teamSize={teamSize}
-                />
+                <ProfileEventTeam key={teamPanelKey} eventId={eventId} />
               )}
             </div>
 
