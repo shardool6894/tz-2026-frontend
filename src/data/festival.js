@@ -10,8 +10,8 @@ export const festival = {
   institute: "https://www.nitw.ac.in/",
   coordinators: [
     { name: "Dheeraj", phone: "9392873015" },
-    { name: "Sarika", phone: "9573963910" },
     { name: "Amey", phone: "6281015559" },
+    { name: "Sarika", phone: "9573963910" },
     { name: "Ashish", phone: "8757714914" },
   ],
 };
